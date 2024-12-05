@@ -1,56 +1,4 @@
-/*!
-Is there an executable file at the given path?
-
-[![](https://docs.rs/is_executable/badge.svg)](https://docs.rs/is_executable/) [![](http://meritbadge.herokuapp.com/is_executable) ![](https://img.shields.io/crates/d/is_executable.png)](https://crates.io/crates/is_executable) [![Unix Build Status](https://travis-ci.org/fitzgen/is_executable.png?branch=master)](https://travis-ci.org/fitzgen/is_executable) [![Windows Build Status](https://ci.appveyor.com/api/projects/status/github/fitzgen/is_executable?branch=master&svg=true)](https://ci.appveyor.com/project/fitzgen/is-executable)
-
-A small helper function which determines whether or not the given path points to
-an executable file. If there is no file at the given path, or the file is not
-executable, then `false` is returned. When there is a file and the file is
-executable, then `true` is returned.
-
-This crate works on both unix-based operating systems (mac, linux, freebsd, etc.) and Windows.
-
-The API comes in two flavors:
-
-1. An extension trait to add an `is_executable` method on `std::path::Path`:
-
-    ```rust
-    use std::path::Path;
-
-    use is_executable::IsExecutable;
-
-    fn main() {
-        let path = Path::new("some/path/to/a/file");
-
-        // Determine if `path` is executable.
-        if path.is_executable() {
-            println!("The path is executable!");
-        } else {
-            println!("The path is _not_ executable!");
-        }
-    }
-    ```
-
-2. For convenience, a standalone `is_executable` function, which takes any
-`AsRef<Path>`:
-
-    ```rust
-    use std::path::Path;
-
-    use is_executable::is_executable;
-
-    fn main() {
-        let path = Path::new("some/path/to/a/file");
-
-        // Determine if `path` is executable.
-        if is_executable(&path) {
-            println!("The path is executable!");
-        } else {
-            println!("The path is _not_ executable!");
-        }
-    }
-    ```
- */
+#![doc = include_str!("../README.md")]
 
 #[cfg(target_os = "windows")]
 extern crate winapi;
@@ -110,24 +58,28 @@ mod windows {
 
     impl IsExecutable for Path {
         fn is_executable(&self) -> bool {
+            // First, ensure that the file exists
+            if !self.exists() {
+                return false;
+            }
+
             // Check using file extension
             if let Some(pathext) = std::env::var_os("PATHEXT") {
                 if let Some(extension) = self.extension() {
-                    // Restructure pathext as Vec<String>
+                    let extension = extension.to_string_lossy();
+
+                    // Originally taken from:
                     // https://github.com/nushell/nushell/blob/93e8f6c05e1e1187d5b674d6b633deb839c84899/crates/nu-cli/src/completion/command.rs#L64-L74
-                    let pathext = pathext
+                    return pathext
                         .to_string_lossy()
                         .split(';')
                         // Filter out empty tokens and ';' at the end
                         .filter(|f| f.len() > 1)
-                        // Cut off the leading '.' character
-                        .map(|ext| ext[1..].to_string())
-                        .collect::<Vec<_>>();
-                    let extension = extension.to_string_lossy();
-
-                    return pathext
-                        .iter()
-                        .any(|ext| extension.eq_ignore_ascii_case(ext));
+                        .any(|ext| {
+                            // Cut off the leading '.' character
+                            let ext = &ext[1..];
+                            extension.eq_ignore_ascii_case(ext)
+                        });
                 }
             }
 
@@ -162,6 +114,23 @@ mod windows {
                 }
             }
 
+            false
+        }
+    }
+}
+
+// For WASI, we can't check if a file is executable
+// Since wasm and wasi
+//  is not supposed to add executables ideologically,
+// specify them collectively
+#[cfg(any(target_os = "wasi", target_family = "wasm"))]
+mod wasm {
+    use std::path::Path;
+
+    use super::IsExecutable;
+
+    impl IsExecutable for Path {
+        fn is_executable(&self) -> bool {
             false
         }
     }
